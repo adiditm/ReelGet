@@ -1,0 +1,82 @@
+[package]
+name = "reelget-gui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+description = "Multiplatform Rust GUI for downloading public and authenticated videos and reels"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "reelget-gui"
+path = "src/main.rs"
+
+[dependencies]
+dirs.workspace = true
+eframe.workspace = true
+egui.workspace = true
+reelget-core = { path = "../reelget-core" }
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+[target.'cfg(not(target_os = "android"))'.dependencies]
+arboard = "3.7"
+eframe = { version = "0.32.3", default-features = false, features = [
+    "accesskit",
+    "default_fonts",
+    "glow",
+    "wayland",
+    "x11",
+] }
+rfd.workspace = true
+
+[target.'cfg(target_os = "android")'.dependencies]
+eframe = { version = "0.32.3", default-features = false, features = [
+    "default_fonts",
+    "glow",
+    "android-native-activity",
+] }
+jni.workspace = true
+winit = { version = "0.30.12", default-features = false, features = ["android-native-activity"] }
+
+[target.'cfg(windows)'.build-dependencies]
+winresource = "0.1.34"
+
+[package.metadata.android]
+apk_name = "ReelGet"
+package = "com.reelget.app"
+build_targets = ["aarch64-linux-android", "armv7-linux-androideabi"]
+resources = "android-res"
+
+[package.metadata.android.sdk]
+min_sdk_version = 24
+target_sdk_version = 35
+
+[package.metadata.android.application]
+label = "ReelGet"
+icon = "@mipmap/ic_launcher"
+uses_cleartext_traffic = true
+
+[package.metadata.android.application.activity]
+label = "ReelGet"
+
+[[package.metadata.android.uses_permission]]
+name = "android.permission.INTERNET"
+
+[[package.metadata.android.uses_permission]]
+name = "android.permission.ACCESS_NETWORK_STATE"
+
+[[package.metadata.android.uses_permission]]
+name = "android.permission.WRITE_EXTERNAL_STORAGE"
+max_sdk_version = 32
+
+[[package.metadata.android.uses_permission]]
+name = "android.permission.READ_EXTERNAL_STORAGE"
+max_sdk_version = 32
+
+[[package.metadata.android.uses_permission]]
+name = "android.permission.MANAGE_EXTERNAL_STORAGE"

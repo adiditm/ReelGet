@@ -1,0 +1,156 @@
+name: Multiplatform Build & Release
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test --workspace
+      - run: cargo check -p reelget-ffi --features jni-bindings
+
+  build-desktop:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            artifact: reelget-macos-arm64
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            artifact: reelget-macos-x86_64
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact: reelget-windows-x86_64
+          - os: windows-latest
+            target: aarch64-pc-windows-msvc
+            artifact: reelget-windows-arm64
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact: reelget-linux-x86_64
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            artifact: reelget-linux-arm64
+            use_zig: true
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install zig & cargo-zigbuild (Linux ARM64 cross)
+        if: matrix.use_zig
+        run: |
+          pipx install ziglang || pip install ziglang
+          cargo install cargo-zigbuild
+
+      - name: Build workspace
+        run: |
+          if [ "${{ matrix.use_zig }}" = "true" ]; then
+            cargo zigbuild --release --target ${{ matrix.target }} --workspace
+          else
+            cargo build --release --target ${{ matrix.target }} --workspace
+          fi
+
+      - name: Stage artifacts
+        shell: bash
+        run: |
+          mkdir -p dist
+          if [[ "${{ matrix.target }}" == *"windows"* ]]; then
+            cp target/${{ matrix.target }}/release/reelget.exe dist/
+            cp target/${{ matrix.target }}/release/reelget-gui.exe dist/
+            cp target/${{ matrix.target }}/release/reelget_ffi.dll dist/
+          elif [[ "${{ matrix.target }}" == *"apple"* ]]; then
+            cp target/${{ matrix.target }}/release/reelget dist/
+            cp target/${{ matrix.target }}/release/libreelget_ffi.dylib dist/
+            mkdir -p dist/ReelGet.app/Contents/MacOS dist/ReelGet.app/Contents/Resources
+            cp target/${{ matrix.target }}/release/reelget-gui dist/ReelGet.app/Contents/MacOS/reelget-gui
+            cp target/${{ matrix.target }}/release/reelget dist/ReelGet.app/Contents/MacOS/reelget
+            cp crates/reelget-gui/assets/AppIcon.icns dist/ReelGet.app/Contents/Resources/AppIcon.icns
+            printf 'APPL????' > dist/ReelGet.app/Contents/PkgInfo
+            printf '<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict><key>CFBundleName</key><string>ReelGet</string><key>CFBundleDisplayName</key><string>ReelGet</string><key>CFBundleIdentifier</key><string>com.reelget.app</string><key>CFBundleVersion</key><string>0.1.0</string><key>CFBundleShortVersionString</key><string>0.1.0</string><key>CFBundleExecutable</key><string>reelget-gui</string><key>CFBundleIconFile</key><string>AppIcon</string><key>CFBundlePackageType</key><string>APPL</string><key>LSMinimumSystemVersion</key><string>11.0</string><key>NSHighResolutionCapable</key><true/></dict></plist>\n' > dist/ReelGet.app/Contents/Info.plist
+            codesign --force --deep --sign - dist/ReelGet.app || true
+          else
+            cp target/${{ matrix.target }}/release/reelget dist/
+            cp target/${{ matrix.target }}/release/reelget-gui dist/
+            cp target/${{ matrix.target }}/release/libreelget_ffi.so dist/
+            cp crates/reelget-gui/assets/icon.png dist/com.reelget.app.png
+            cp crates/reelget-gui/linux/com.reelget.app.desktop dist/com.reelget.app.desktop
+            cp crates/reelget-gui/linux/install-desktop.sh dist/install-desktop.sh
+            chmod +x dist/install-desktop.sh
+          fi
+          cp crates/reelget-ffi/include/reelget.h dist/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist/
+
+  build-android-arm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi
+      - uses: android-actions/setup-android@v3
+      - name: Install NDK, cargo-ndk & cargo-apk
+        run: |
+          sdkmanager "ndk;28.2.13676358"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/28.2.13676358" >> $GITHUB_ENV
+          cargo install --locked cargo-ndk cargo-apk
+      - name: Build Android ARM APK, JNI libraries & ARM64 CLI
+        run: |
+          mkdir -p dist/apk dist/jniLibs dist/cli-arm64
+          keytool -genkey -v -keystore /tmp/ci-debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+          CARGO_APK_RELEASE_KEYSTORE=/tmp/ci-debug.keystore CARGO_APK_RELEASE_KEYSTORE_PASSWORD=android cargo apk build --release -p reelget-gui --lib
+          cp target/release/apk/ReelGet.apk dist/apk/ReelGet.apk
+          cargo ndk -t arm64-v8a -t armeabi-v7a -o dist/jniLibs build --release -p reelget-ffi
+          cargo ndk -t arm64-v8a build --release -p reelget-cli
+          cp target/aarch64-linux-android/release/reelget dist/cli-arm64/
+          cp crates/reelget-ffi/android/ReelGet.kt dist/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: reelget-android-arm
+          path: dist/
+
+  publish-release:
+    needs: [build-desktop, build-android-arm]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Package release archives
+        shell: bash
+        run: |
+          mkdir -p release-assets
+          (cd artifacts/reelget-macos-arm64 && zip -r ../../release-assets/ReelGet-${{ github.ref_name }}-macos-arm64.zip .)
+          (cd artifacts/reelget-macos-x86_64 && zip -r ../../release-assets/ReelGet-${{ github.ref_name }}-macos-x86_64.zip .)
+          (cd artifacts/reelget-windows-x86_64 && zip -r ../../release-assets/ReelGet-${{ github.ref_name }}-windows-x86_64.zip .)
+          (cd artifacts/reelget-windows-arm64 && zip -r ../../release-assets/ReelGet-${{ github.ref_name }}-windows-arm64.zip .)
+          tar -czf release-assets/ReelGet-${{ github.ref_name }}-linux-x86_64.tar.gz -C artifacts/reelget-linux-x86_64 .
+          tar -czf release-assets/ReelGet-${{ github.ref_name }}-linux-arm64.tar.gz -C artifacts/reelget-linux-arm64 .
+          cp artifacts/reelget-android-arm/apk/ReelGet.apk release-assets/ReelGet-${{ github.ref_name }}-android-arm.apk
+          (cd artifacts/reelget-android-arm/jniLibs && zip -r ../../../release-assets/ReelGet-${{ github.ref_name }}-android-jniLibs.zip .)
+          tar -czf release-assets/ReelGet-${{ github.ref_name }}-android-arm64-cli.tar.gz -C artifacts/reelget-android-arm/cli-arm64 .
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: release-assets/*
+          generate_release_notes: true

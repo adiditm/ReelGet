@@ -1,0 +1,25 @@
+[package]
+name = "reelget-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+description = "Multiplatform pure-Rust async video and reel downloader engine"
+
+[dependencies]
+aes.workspace = true
+async-trait.workspace = true
+bytes = "1.12"
+cbc.workspace = true
+futures-util.workspace = true
+regex.workspace = true
+reqwest.workspace = true
+scraper.workspace = true
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha1.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+url.workspace = true

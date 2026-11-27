@@ -1,0 +1,11 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=ReelGet
+GenericName=Video & Reel Downloader
+Comment=Download public and authenticated videos and reels
+Exec=reelget-gui
+Icon=com.reelget.app
+Terminal=false
+Categories=Network;AudioVideo;Utility;
+StartupWMClass=com.reelget.app
