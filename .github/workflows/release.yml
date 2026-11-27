@@ -51,16 +51,20 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
-      - name: Install zig & cargo-zigbuild (Linux ARM64 cross)
+      - name: Setup Zig (Linux ARM64 cross)
         if: matrix.use_zig
-        run: |
-          pipx install ziglang || pip install ziglang
-          cargo install cargo-zigbuild
+        uses: mlugg/setup-zig@v2
+
+      - name: Install cargo-zigbuild (Linux ARM64 cross)
+        if: matrix.use_zig
+        shell: bash
+        run: cargo install --locked cargo-zigbuild
 
       - name: Build workspace
+        shell: bash
         run: |
           if [ "${{ matrix.use_zig }}" = "true" ]; then
-            cargo zigbuild --release --target ${{ matrix.target }} --workspace
+            cargo zigbuild --release --target ${{ matrix.target }}.2.28 --workspace
           else
             cargo build --release --target ${{ matrix.target }} --workspace
           fi
@@ -106,13 +110,19 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-linux-android,armv7-linux-androideabi
-      - uses: android-actions/setup-android@v3
-      - name: Install NDK, cargo-ndk & cargo-apk
+      - name: Install Android NDK, Build-Tools, cargo-ndk & cargo-apk
+        shell: bash
         run: |
-          sdkmanager "ndk;28.2.13676358"
-          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/28.2.13676358" >> $GITHUB_ENV
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SDKMANAGER" ]; then
+            SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f | head -n 1)"
+          fi
+          yes | "$SDKMANAGER" --sdk_root="$ANDROID_HOME" --licenses >/dev/null || true
+          "$SDKMANAGER" --sdk_root="$ANDROID_HOME" "ndk;28.2.13676358" "build-tools;35.0.0" "platforms;android-35"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/28.2.13676358" >> "$GITHUB_ENV"
           cargo install --locked cargo-ndk cargo-apk
       - name: Build Android ARM APK, JNI libraries & ARM64 CLI
+        shell: bash
         run: |
           mkdir -p dist/apk dist/jniLibs dist/cli-arm64
           keytool -genkey -v -keystore /tmp/ci-debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
@@ -141,8 +151,8 @@ jobs:
         shell: bash
         run: |
           mkdir -p release-assets
-          (cd artifacts/reelget-macos-arm64 && zip -r ../../release-assets/ReelGet-${{ github.ref_name }}-macos-arm64.zip .)
-          (cd artifacts/reelget-macos-x86_64 && zip -r ../../release-assets/ReelGet-${{ github.ref_name }}-macos-x86_64.zip .)
+          (cd artifacts/reelget-macos-arm64 && zip -ry ../../release-assets/ReelGet-${{ github.ref_name }}-macos-arm64.zip .)
+          (cd artifacts/reelget-macos-x86_64 && zip -ry ../../release-assets/ReelGet-${{ github.ref_name }}-macos-x86_64.zip .)
           (cd artifacts/reelget-windows-x86_64 && zip -r ../../release-assets/ReelGet-${{ github.ref_name }}-windows-x86_64.zip .)
           (cd artifacts/reelget-windows-arm64 && zip -r ../../release-assets/ReelGet-${{ github.ref_name }}-windows-arm64.zip .)
           tar -czf release-assets/ReelGet-${{ github.ref_name }}-linux-x86_64.tar.gz -C artifacts/reelget-linux-x86_64 .

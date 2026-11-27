@@ -71,9 +71,10 @@ Downloader/
    - Dekripsi standar `AES-128` CBC pure-Rust (`aes` + `cbc`).
    - Download segmen paralel (`FuturesOrdered` + `Semaphore`) menjaga urutan segmen.
    - Remux `.ts` -> `.mp4` otomatis jika `ffmpeg` tersedia; tetap menghasilkan `.mp4` (fMP4) atau `.ts` valid jika `ffmpeg` tidak ada (mis. di Android).
-3. **Adaptive Video + Audio (YouTube)**:
+3. **Adaptive Video + Audio (YouTube) & MP3 Output**:
    - Jika `ffmpeg` tersedia, mencoba download adaptive video + audio lalu remux `-c copy`.
    - Jika CDN adaptive mengembalikan `403` (mis. tanpa PO Token), otomatis fallback ke format progressive `VideoAndAudio` (`itag 18`) agar download tetap berhasil di semua platform termasuk Android.
+   - Mendukung konversi output ke **MP3** dengan pilihan bitrate (`64`, `96`, `128`, `192`, `256`, `320` kbps) menggunakan `ffmpeg` (`libmp3lame`) atau fallback pure-Rust (`symphonia` + `shine-rs`) sehingga tetap berjalan di Android tanpa `ffmpeg`.
 
 ---
 

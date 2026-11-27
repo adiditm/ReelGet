@@ -6,8 +6,8 @@ use eframe::egui;
 use reelget_core::auth::AuthConfig;
 use reelget_core::downloader::ProgressCallback;
 use reelget_core::models::{
-    ClipRange, DownloadOptions, DownloadResult, MediaInfo, Platform, ProgressEvent,
-    QualityPreference,
+    ClipRange, DownloadOptions, DownloadResult, MediaInfo, Mp3Bitrate, OutputFormat, Platform,
+    ProgressEvent, QualityPreference,
 };
 use reelget_core::ReelGetClient;
 use tokio::runtime::Runtime;
@@ -180,6 +180,8 @@ pub struct ReelGetApp {
     custom_filename: String,
     output_dir: String,
     quality: QualityChoice,
+    output_format: OutputFormat,
+    mp3_bitrate: Mp3Bitrate,
     concurrency: usize,
     overwrite: bool,
     resume: bool,
@@ -245,6 +247,8 @@ impl ReelGetApp {
             custom_filename: String::new(),
             output_dir: default_dir.to_string_lossy().to_string(),
             quality: QualityChoice::Best,
+            output_format: OutputFormat::Original,
+            mp3_bitrate: Mp3Bitrate::Kbps192,
             concurrency: 4,
             overwrite: false,
             resume: true,
@@ -469,7 +473,10 @@ impl ReelGetApp {
             }
         };
 
-        if clip.is_some() && self.ffmpeg_path.is_none() {
+        if clip.is_some()
+            && self.output_format == OutputFormat::Original
+            && self.ffmpeg_path.is_none()
+        {
             *self.inspect_state.lock().unwrap() = InspectState::Error(
                 "Video clipping requires ffmpeg. Please install ffmpeg first.".to_string(),
             );
@@ -530,6 +537,8 @@ impl ReelGetApp {
                 output_dir: effective_download_dir.clone(),
                 filename: custom_name.clone(),
                 quality: self.quality.to_preference(),
+                output_format: self.output_format,
+                mp3_bitrate: self.mp3_bitrate,
                 overwrite: self.overwrite || use_mediastore_export,
                 resume: self.resume,
                 concurrency: self.concurrency,
@@ -1149,47 +1158,98 @@ impl ReelGetApp {
                             ui.add_space(6.0);
                             ui.horizontal_wrapped(|ui| {
                                 ui.label(
-                                    egui::RichText::new("Quality:")
+                                    egui::RichText::new("Output:")
                                         .strong()
                                         .color(pal.text_primary),
                                 );
-                                egui::ComboBox::from_id_salt("quality_combo")
-                                    .selected_text(
-                                        egui::RichText::new(self.quality.label())
+                                if tab_button(
+                                    ui,
+                                    "Original (Video)",
+                                    self.output_format == OutputFormat::Original,
+                                    &pal,
+                                )
+                                .clicked()
+                                {
+                                    self.output_format = OutputFormat::Original;
+                                }
+                                if tab_button(
+                                    ui,
+                                    "MP3 (Audio)",
+                                    self.output_format == OutputFormat::Mp3,
+                                    &pal,
+                                )
+                                .clicked()
+                                {
+                                    self.output_format = OutputFormat::Mp3;
+                                }
+                            });
+
+                            ui.add_space(6.0);
+                            ui.horizontal_wrapped(|ui| {
+                                if self.output_format == OutputFormat::Mp3 {
+                                    ui.label(
+                                        egui::RichText::new("MP3 Bitrate:")
+                                            .strong()
                                             .color(pal.text_primary),
-                                    )
-                                    .show_ui(ui, |ui| {
-                                        ui.selectable_value(
-                                            &mut self.quality,
-                                            QualityChoice::Best,
-                                            "Best Available",
-                                        );
-                                        ui.selectable_value(
-                                            &mut self.quality,
-                                            QualityChoice::P1080,
-                                            "1080p (Full HD)",
-                                        );
-                                        ui.selectable_value(
-                                            &mut self.quality,
-                                            QualityChoice::P720,
-                                            "720p (HD)",
-                                        );
-                                        ui.selectable_value(
-                                            &mut self.quality,
-                                            QualityChoice::P480,
-                                            "480p (SD)",
-                                        );
-                                        ui.selectable_value(
-                                            &mut self.quality,
-                                            QualityChoice::P360,
-                                            "360p",
-                                        );
-                                        ui.selectable_value(
-                                            &mut self.quality,
-                                            QualityChoice::AudioOnly,
-                                            "Audio Only",
-                                        );
-                                    });
+                                    );
+                                    egui::ComboBox::from_id_salt("mp3_bitrate_combo")
+                                        .selected_text(
+                                            egui::RichText::new(self.mp3_bitrate.label())
+                                                .color(pal.text_primary),
+                                        )
+                                        .show_ui(ui, |ui| {
+                                            for br in Mp3Bitrate::ALL {
+                                                ui.selectable_value(
+                                                    &mut self.mp3_bitrate,
+                                                    br,
+                                                    br.label(),
+                                                );
+                                            }
+                                        });
+                                } else {
+                                    ui.label(
+                                        egui::RichText::new("Quality:")
+                                            .strong()
+                                            .color(pal.text_primary),
+                                    );
+                                    egui::ComboBox::from_id_salt("quality_combo")
+                                        .selected_text(
+                                            egui::RichText::new(self.quality.label())
+                                                .color(pal.text_primary),
+                                        )
+                                        .show_ui(ui, |ui| {
+                                            ui.selectable_value(
+                                                &mut self.quality,
+                                                QualityChoice::Best,
+                                                "Best Available",
+                                            );
+                                            ui.selectable_value(
+                                                &mut self.quality,
+                                                QualityChoice::P1080,
+                                                "1080p (Full HD)",
+                                            );
+                                            ui.selectable_value(
+                                                &mut self.quality,
+                                                QualityChoice::P720,
+                                                "720p (HD)",
+                                            );
+                                            ui.selectable_value(
+                                                &mut self.quality,
+                                                QualityChoice::P480,
+                                                "480p (SD)",
+                                            );
+                                            ui.selectable_value(
+                                                &mut self.quality,
+                                                QualityChoice::P360,
+                                                "360p",
+                                            );
+                                            ui.selectable_value(
+                                                &mut self.quality,
+                                                QualityChoice::AudioOnly,
+                                                "Audio Only",
+                                            );
+                                        });
+                                }
 
                                 if !is_compact && self.input_mode == InputMode::Single {
                                     ui.add_space(6.0);
@@ -1248,7 +1308,9 @@ impl ReelGetApp {
                                 );
 
                                 if self.clip_enabled {
-                                    if self.ffmpeg_path.is_none() {
+                                    if self.output_format == OutputFormat::Original
+                                        && self.ffmpeg_path.is_none()
+                                    {
                                         ui.label(
                                             egui::RichText::new("Requires ffmpeg (not found)")
                                                 .strong()
@@ -2522,6 +2584,7 @@ fn export_to_android_mediastore(
             "mkv" => "video/x-matroska",
             "ts" => "video/mp2t",
             "m4a" => "audio/mp4",
+            "mp3" => "audio/mpeg",
             _ => "video/mp4",
         };
 
@@ -2823,6 +2886,8 @@ mod tests {
             custom_filename: String::new(),
             output_dir: "/storage/emulated/0/Download".to_string(),
             quality: QualityChoice::Best,
+            output_format: OutputFormat::Original,
+            mp3_bitrate: Mp3Bitrate::Kbps192,
             concurrency: 4,
             overwrite: false,
             resume: true,
@@ -2905,6 +2970,8 @@ mod tests {
             custom_filename: String::new(),
             output_dir: "/storage/emulated/0/Download".to_string(),
             quality: QualityChoice::Best,
+            output_format: OutputFormat::Original,
+            mp3_bitrate: Mp3Bitrate::Kbps192,
             concurrency: 4,
             overwrite: false,
             resume: true,

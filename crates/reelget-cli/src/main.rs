@@ -5,7 +5,9 @@ use std::sync::{Arc, Mutex};
 use clap::{Args, Parser, Subcommand};
 use indicatif::{ProgressBar, ProgressStyle};
 use reelget_core::auth::AuthConfig;
-use reelget_core::models::{ClipRange, DownloadOptions, ProgressEvent, QualityPreference};
+use reelget_core::models::{
+    ClipRange, DownloadOptions, Mp3Bitrate, OutputFormat, ProgressEvent, QualityPreference,
+};
 use reelget_core::ReelGetClient;
 
 #[derive(Parser, Debug)]
@@ -91,6 +93,18 @@ struct DownloadArgs {
     /// Quality preference: best, 1080p, 720p, 480p, 360p, audio, or format_id
     #[arg(short = 'q', long, default_value = "best", value_name = "QUALITY")]
     quality: String,
+
+    /// Convert downloaded audio/video to MP3
+    #[arg(long)]
+    mp3: bool,
+
+    /// Output format: original or mp3
+    #[arg(long, default_value = "original", value_name = "FORMAT")]
+    format: String,
+
+    /// MP3 bitrate in kbps: 64, 96, 128, 192, 256, 320 (implies --mp3 if specified)
+    #[arg(long, value_name = "KBPS")]
+    bitrate: Option<String>,
 
     /// Concurrent HLS segment downloads
     #[arg(long, default_value_t = 4)]
@@ -248,6 +262,24 @@ async fn run_download(
 
     let auth = args.auth.to_auth_config()?;
     let quality = QualityPreference::from_str(&args.quality).unwrap_or_default();
+    let output_format = if args.mp3
+        || args.bitrate.is_some()
+        || args.format.trim().eq_ignore_ascii_case("mp3")
+    {
+        OutputFormat::Mp3
+    } else if args.format.trim().eq_ignore_ascii_case("original") {
+        OutputFormat::Original
+    } else {
+        return Err(format!(
+            "Unsupported output format '{}'. Expected 'original' or 'mp3'.",
+            args.format
+        )
+        .into());
+    };
+    let mp3_bitrate = match &args.bitrate {
+        Some(b) => Mp3Bitrate::from_str(b)?,
+        None => Mp3Bitrate::default(),
+    };
     let clip = match (&args.clip_from, &args.clip_to) {
         (None, None) => None,
         (from_opt, to_opt) => {
@@ -272,6 +304,8 @@ async fn run_download(
             output_dir: args.output.clone(),
             filename: if single_url { args.filename.clone() } else { None },
             quality: quality.clone(),
+            output_format,
+            mp3_bitrate,
             overwrite: args.overwrite,
             resume: !args.no_resume,
             concurrency: args.concurrency,

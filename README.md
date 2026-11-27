@@ -33,10 +33,16 @@ cargo run --release -p reelget-gui
 open ./dist/macos-universal/ReelGet.app
 ```
 
-### Clip Video (From - To)
+### Clip Video (From - To) & MP3 Audio Output
 ```bash
-# Clip from 00:00:10 to 00:00:25 (requires ffmpeg)
+# Clip from 00:00:10 to 00:00:25 (requires ffmpeg for video)
 ./target/release/reelget download --from 00:00:10 --to 00:00:25 -o ./downloads "https://www.youtube.com/watch?v=K6qj09OHvjw"
+
+# Download as MP3 with bitrate selection (64, 96, 128, 192, 256, 320 kbps)
+./target/release/reelget download --mp3 --bitrate 320 -o ./downloads "https://www.youtube.com/watch?v=K6qj09OHvjw"
+
+# Clipped MP3 (works with ffmpeg or pure-Rust symphonia + shine-rs fallback)
+./target/release/reelget download --mp3 --bitrate 192 --from 00:00:10 --to 00:00:30 -o ./downloads "https://www.instagram.com/reel/ChxvmGJLfsW/"
 ```
 
 ### Build CLI from source

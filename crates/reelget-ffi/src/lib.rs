@@ -6,7 +6,9 @@ use std::sync::{Arc, OnceLock};
 
 use reelget_core::auth::AuthConfig;
 use reelget_core::downloader::ProgressCallback;
-use reelget_core::models::{ClipRange, DownloadOptions, QualityPreference};
+use reelget_core::models::{
+    ClipRange, DownloadOptions, Mp3Bitrate, OutputFormat, QualityPreference,
+};
 use reelget_core::ReelGetClient;
 use serde::Serialize;
 use tokio::runtime::Runtime;
@@ -229,6 +231,93 @@ pub unsafe extern "C" fn reelget_download_clip_json(
     let opts = DownloadOptions {
         output_dir: out_dir,
         quality: qual,
+        clip,
+        auth,
+        ..Default::default()
+    };
+
+    let user_data_addr = user_data as usize;
+    let cb: Option<ProgressCallback> = progress_cb.map(|func| {
+        Arc::new(move |ev| {
+            if let Ok(json) = serde_json::to_string(&ev) {
+                if let Ok(cstr) = CString::new(json) {
+                    func(cstr.as_ptr(), user_data_addr as *mut c_void);
+                }
+            }
+        }) as ProgressCallback
+    });
+
+    let client = ReelGetClient::new();
+    let res = runtime().block_on(client.download(&url_str, opts, cb));
+    let json = match res {
+        Ok(dl) => ok_json(dl),
+        Err(e) => err_json(&e.to_string()),
+    };
+    into_raw_c_string(json)
+}
+
+/// Download and convert audio to MP3 at the specified bitrate (`64`, `96`, `128`, `192`, `256`, `320`).
+///
+/// # Safety
+/// All non-null string pointers must be valid NUL-terminated UTF-8 C strings.
+/// `user_data` must remain valid for the duration of the call if `progress_cb` is provided.
+#[no_mangle]
+pub unsafe extern "C" fn reelget_download_mp3_json(
+    url: *const c_char,
+    output_dir: *const c_char,
+    bitrate: *const c_char,
+    from_time: *const c_char,
+    to_time: *const c_char,
+    cookies_file: *const c_char,
+    raw_cookie: *const c_char,
+    progress_cb: Option<ReelGetProgressFn>,
+    user_data: *mut c_void,
+) -> *mut c_char {
+    let Some(url_str) = cstr_to_opt_string(url) else {
+        return into_raw_c_string(err_json("url is null or empty"));
+    };
+    let out_dir = cstr_to_opt_string(output_dir)
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("."));
+    let mp3_bitrate = match cstr_to_opt_string(bitrate) {
+        Some(b) => match Mp3Bitrate::from_str(&b) {
+            Ok(v) => v,
+            Err(e) => return into_raw_c_string(err_json(&e)),
+        },
+        None => Mp3Bitrate::default(),
+    };
+
+    let from_opt = cstr_to_opt_string(from_time);
+    let to_opt = cstr_to_opt_string(to_time);
+    let clip = match (from_opt, to_opt) {
+        (None, None) => None,
+        (f, t) => {
+            let start_secs = match f.as_deref().map(ClipRange::parse_timestamp).transpose() {
+                Ok(v) => v,
+                Err(e) => return into_raw_c_string(err_json(&e)),
+            };
+            let end_secs = match t.as_deref().map(ClipRange::parse_timestamp).transpose() {
+                Ok(v) => v,
+                Err(e) => return into_raw_c_string(err_json(&e)),
+            };
+            match ClipRange::new(start_secs, end_secs) {
+                Ok(c) => Some(c),
+                Err(e) => return into_raw_c_string(err_json(&e)),
+            }
+        }
+    };
+
+    let auth = AuthConfig {
+        cookies_file: cstr_to_opt_string(cookies_file).map(PathBuf::from),
+        raw_cookie: cstr_to_opt_string(raw_cookie),
+        headers: Vec::new(),
+        user_agent: None,
+    };
+
+    let opts = DownloadOptions {
+        output_dir: out_dir,
+        output_format: OutputFormat::Mp3,
+        mp3_bitrate,
         clip,
         auth,
         ..Default::default()

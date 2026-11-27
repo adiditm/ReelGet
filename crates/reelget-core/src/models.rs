@@ -381,11 +381,91 @@ impl ClipRange {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum OutputFormat {
+    #[default]
+    Original,
+    Mp3,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum Mp3Bitrate {
+    Kbps64,
+    Kbps96,
+    Kbps128,
+    #[default]
+    Kbps192,
+    Kbps256,
+    Kbps320,
+}
+
+impl Mp3Bitrate {
+    pub const ALL: [Mp3Bitrate; 6] = [
+        Mp3Bitrate::Kbps64,
+        Mp3Bitrate::Kbps96,
+        Mp3Bitrate::Kbps128,
+        Mp3Bitrate::Kbps192,
+        Mp3Bitrate::Kbps256,
+        Mp3Bitrate::Kbps320,
+    ];
+
+    pub fn kbps(self) -> u32 {
+        match self {
+            Mp3Bitrate::Kbps64 => 64,
+            Mp3Bitrate::Kbps96 => 96,
+            Mp3Bitrate::Kbps128 => 128,
+            Mp3Bitrate::Kbps192 => 192,
+            Mp3Bitrate::Kbps256 => 256,
+            Mp3Bitrate::Kbps320 => 320,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Mp3Bitrate::Kbps64 => "64 kbps",
+            Mp3Bitrate::Kbps96 => "96 kbps",
+            Mp3Bitrate::Kbps128 => "128 kbps",
+            Mp3Bitrate::Kbps192 => "192 kbps",
+            Mp3Bitrate::Kbps256 => "256 kbps",
+            Mp3Bitrate::Kbps320 => "320 kbps",
+        }
+    }
+}
+
+impl FromStr for Mp3Bitrate {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let cleaned = s
+            .trim()
+            .to_ascii_lowercase()
+            .trim_end_matches("bps")
+            .trim_end_matches('k')
+            .trim()
+            .to_string();
+        match cleaned.as_str() {
+            "64" => Ok(Mp3Bitrate::Kbps64),
+            "96" => Ok(Mp3Bitrate::Kbps96),
+            "128" => Ok(Mp3Bitrate::Kbps128),
+            "192" => Ok(Mp3Bitrate::Kbps192),
+            "256" => Ok(Mp3Bitrate::Kbps256),
+            "320" => Ok(Mp3Bitrate::Kbps320),
+            _ => Err(format!(
+                "Unsupported MP3 bitrate '{s}'. Supported: 64, 96, 128, 192, 256, 320"
+            )),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct DownloadOptions {
     pub output_dir: PathBuf,
     pub filename: Option<String>,
     pub quality: QualityPreference,
+    pub output_format: OutputFormat,
+    pub mp3_bitrate: Mp3Bitrate,
     pub overwrite: bool,
     pub resume: bool,
     pub concurrency: usize,
@@ -401,6 +481,8 @@ impl Default for DownloadOptions {
             output_dir: PathBuf::from("."),
             filename: None,
             quality: QualityPreference::Best,
+            output_format: OutputFormat::Original,
+            mp3_bitrate: Mp3Bitrate::Kbps192,
             overwrite: false,
             resume: true,
             concurrency: 4,
@@ -466,5 +548,14 @@ mod tests {
         let clip = ClipRange::from_hms(Some((0, 0, 10)), Some((0, 0, 25))).unwrap();
         assert_eq!(clip.filename_tag(), "00-00-10_to_00-00-25");
         assert!(ClipRange::from_hms(Some((0, 1, 0)), Some((0, 0, 30))).is_err());
+    }
+
+    #[test]
+    fn test_mp3_bitrate_parse() {
+        assert_eq!(Mp3Bitrate::from_str("64").unwrap(), Mp3Bitrate::Kbps64);
+        assert_eq!(Mp3Bitrate::from_str("128k").unwrap(), Mp3Bitrate::Kbps128);
+        assert_eq!(Mp3Bitrate::from_str("192kbps").unwrap(), Mp3Bitrate::Kbps192);
+        assert_eq!(Mp3Bitrate::from_str("320").unwrap(), Mp3Bitrate::Kbps320);
+        assert!(Mp3Bitrate::from_str("999").is_err());
     }
 }
